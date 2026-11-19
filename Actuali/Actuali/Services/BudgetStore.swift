@@ -3455,6 +3455,10 @@ final class BudgetStore: ObservableObject {
             UserDefaults.standard.removeObject(
                 forKey: Self.excludedFromSpentDefaultsKey(for: DemoDataSeeder.budgetId)
             )
+            // The reseeded accounts have new ids, so what was waiting on the
+            // old ones could never be approved.
+            stagedBankTransactions = []
+            rejectedBankImportIds = [:]
             await loadLocalBudget(DemoDataSeeder.budgetId)
             do {
                 try DemoDataSeeder.seedPendingImports(store: pendingImports)
