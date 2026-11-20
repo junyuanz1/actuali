@@ -20,6 +20,21 @@ struct NewTransactionNotifierTests {
         #expect(NewTransactionNotifier.makeContent(for: [], currencyCode: "USD") == nil)
     }
 
+    @Test func aChargeOffItsUsualShowsTheUsualAmount() {
+        let content = NewTransactionNotifier.makeContent(
+            for: [
+                makeTransaction(id: "t1", payeeName: "Netflix", categoryId: "fun", amount: -1999),
+                makeTransaction(id: "t2", payeeName: "Starbucks", categoryId: "food"),
+            ],
+            currencyCode: "USD",
+            usualAmounts: ["t1": -1549]
+        )
+
+        let lines = content?.body.components(separatedBy: "\n") ?? []
+        #expect(lines.first?.contains("Usually -$15.49") == true)
+        #expect(lines.last?.contains("Usually") == false)
+    }
+
     @Test func singleTransactionShowsAmountAndPayee() {
         let content = NewTransactionNotifier.makeContent(
             for: [makeTransaction(id: "t1", payeeName: "Starbucks", categoryId: "food")],

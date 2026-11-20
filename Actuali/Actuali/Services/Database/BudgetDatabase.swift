@@ -2229,6 +2229,45 @@ final class BudgetDatabase: Sendable {
         }
     }
 
+    /// One past charge of a payee, as the transaction editor's history lists it.
+    struct PayeeHistoryRow: Identifiable, Equatable, Sendable {
+        let id: String
+        let date: Int
+        let amount: Int
+        let accountName: String?
+        let categoryName: String?
+    }
+
+    /// Every live charge of a payee, newest first. A split counts once, as its
+    /// parent's total: it is one charge however it was categorized. Payees
+    /// merged into this one are followed through `payee_mapping`.
+    func fetchPayeeHistory(payeeId: String) async throws -> [PayeeHistoryRow] {
+        try await dbQueue.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT t.id, t.date, t.amount, a.name AS account_name, c.name AS category_name
+                FROM transactions t
+                LEFT JOIN payee_mapping pm ON pm.id = t.description
+                LEFT JOIN accounts a ON a.id = t.acct
+                LEFT JOIN category_mapping cm ON cm.id = t.category
+                LEFT JOIN categories c ON c.id = COALESCE(cm.transferId, t.category)
+                WHERE COALESCE(pm.targetId, t.description)
+                      = COALESCE((SELECT targetId FROM payee_mapping WHERE id = ?), ?)
+                  AND (t.tombstone = 0 OR t.tombstone IS NULL)
+                  AND (t.isChild = 0 OR t.isChild IS NULL)
+                  AND t.date IS NOT NULL
+                ORDER BY t.date DESC, t.sort_order DESC
+            """, arguments: [payeeId, payeeId]).map { row in
+                PayeeHistoryRow(
+                    id: row["id"],
+                    date: row["date"] ?? 0,
+                    amount: row["amount"] ?? 0,
+                    accountName: row["account_name"],
+                    categoryName: row["category_name"]
+                )
+            }
+        }
+    }
+
     #if DEBUG
     /// Test-only escape hatch so unit tests can seed the database directly.
     /// Do NOT call from production code.

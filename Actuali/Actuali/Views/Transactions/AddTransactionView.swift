@@ -67,6 +67,8 @@ struct AddTransactionView: View {
     /// the category picker and saves as a single transaction.
     @State private var unsplitRequested = false
     @State private var confirmedReviewRequirements: Set<PendingImportReviewRequirement> = []
+    /// Payee history and rule suggestions for the transaction being edited.
+    @State private var inspection = BudgetStore.TransactionInspection()
 
     /// Initializer for the "Add" flow. The optional prefill parameters carry
     /// whatever an automation passed along — a failed Wallet log or the Add
@@ -680,6 +682,24 @@ struct AddTransactionView: View {
                     }
                 }
 
+                if let editing, !isTransfer {
+                    TransactionRuleSections(
+                        transaction: editing,
+                        inspection: inspection,
+                        payee: matchingPayee(for: payeeName),
+                        payeeName: payeeName,
+                        categoryId: selectedCategoryId
+                    ) { change in
+                        switch change.field {
+                        case .payee:
+                            payeeName = change.to ?? ""
+                        case .category:
+                            selectedCategoryId = change.categoryId
+                            userPickedCategory = true
+                        }
+                    }
+                }
+
                 Section {
                     DatePicker(selection: $date, displayedComponents: .date) {
                         Label("Date", systemImage: "calendar")
@@ -827,6 +847,12 @@ struct AddTransactionView: View {
                     // reached — the same reachability the tap has.
                     .keyboardShortcut(.cancelAction)
                 }
+
+                // Reference, not input: under the buttons so it never pushes
+                // them down the form.
+                if let editing, !isTransfer {
+                    TransactionHistorySections(transaction: editing, inspection: inspection)
+                }
             }
             .readableWidth()
             // The form's default ~35pt top inset is dead space on the
@@ -868,6 +894,18 @@ struct AddTransactionView: View {
                 // payees load as empty so a parent payee edit follows through
                 // to them, mirroring Actual's cascade rule.
                 await loadSplitChildren()
+            }
+            .task {
+                guard let editing else { return }
+                inspection = await budgetStore.inspectTransaction(editing)
+                // Both load on demand elsewhere; the sections read them for
+                // the rule offer and the schedule row.
+                if !budgetStore.rulesSupported {
+                    await budgetStore.loadRules()
+                }
+                if budgetStore.schedules.isEmpty {
+                    await budgetStore.loadSchedules()
+                }
             }
             .task(id: homeCheck) {
                 guard !isEditing else { return }

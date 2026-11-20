@@ -49,6 +49,7 @@ enum NewTransactionNotifier {
                        numberFormat: ActualNumberFormat = .commaDot,
                        accountNames: [String: String] = [:],
                        offBudgetAccountIds: Set<String> = [],
+                       usualAmounts: [String: Int] = [:],
                        settings: TransactionNotificationSettings = TransactionNotificationSettings(),
                        center: any NotificationPosting = UNUserNotificationCenter.current()) async {
         let transactions = settings.includesOffBudget
@@ -58,7 +59,8 @@ enum NewTransactionNotifier {
                                                             narrowSymbol: narrowSymbol,
                                                             numberFormat: numberFormat,
                                                             accountNames: accountNames,
-                                                            offBudgetAccountIds: offBudgetAccountIds) else { return }
+                                                            offBudgetAccountIds: offBudgetAccountIds,
+                                                            usualAmounts: usualAmounts) else { return }
 
         let granted: Bool
         do {
@@ -81,12 +83,14 @@ enum NewTransactionNotifier {
                             narrowSymbol: Bool = false,
                             numberFormat: ActualNumberFormat = .commaDot,
                             accountNames: [String: String] = [:],
-                            offBudgetAccountIds: Set<String> = []) -> UNNotificationRequest? {
+                            offBudgetAccountIds: Set<String> = [],
+                            usualAmounts: [String: Int] = [:]) -> UNNotificationRequest? {
         guard let content = makeContent(for: transactions, currencyCode: currencyCode,
                                         narrowSymbol: narrowSymbol,
                                         numberFormat: numberFormat,
                                         accountNames: accountNames,
-                                        offBudgetAccountIds: offBudgetAccountIds) else { return nil }
+                                        offBudgetAccountIds: offBudgetAccountIds,
+                                        usualAmounts: usualAmounts) else { return nil }
         return UNNotificationRequest(identifier: requestIdentifier, content: content, trigger: nil)
     }
 
@@ -98,7 +102,8 @@ enum NewTransactionNotifier {
                             narrowSymbol: Bool = false,
                             numberFormat: ActualNumberFormat = .commaDot,
                             accountNames: [String: String] = [:],
-                            offBudgetAccountIds: Set<String> = []) -> UNNotificationContent? {
+                            offBudgetAccountIds: Set<String> = [],
+                            usualAmounts: [String: Int] = [:]) -> UNNotificationContent? {
         guard !transactions.isEmpty else { return nil }
 
         let content = UNMutableNotificationContent()
@@ -112,7 +117,8 @@ enum NewTransactionNotifier {
         var lines = transactions.prefix(maxDetailLines).map {
             line(for: $0, currencyCode: currencyCode, narrowSymbol: narrowSymbol,
                  numberFormat: numberFormat,
-                 accountNames: accountNames, offBudgetAccountIds: offBudgetAccountIds)
+                 accountNames: accountNames, offBudgetAccountIds: offBudgetAccountIds,
+                 usual: usualAmounts[$0.id])
         }
         if transactions.count > maxDetailLines {
             lines.append(String(localized: "…and \(transactions.count - maxDetailLines) more"))
@@ -130,7 +136,8 @@ enum NewTransactionNotifier {
                              narrowSymbol: Bool,
                              numberFormat: ActualNumberFormat,
                              accountNames: [String: String],
-                             offBudgetAccountIds: Set<String>) -> String {
+                             offBudgetAccountIds: Set<String>,
+                             usual: Int?) -> String {
         var line = CurrencyAmountFormat.string(cents: transaction.amount,
                                                currencyCode: currencyCode,
                                                narrowSymbol: narrowSymbol,
@@ -143,6 +150,12 @@ enum NewTransactionNotifier {
         }
         if transaction.needsCategory(offBudgetAccountIds: offBudgetAccountIds) {
             line += " · " + String(localized: "Needs a category")
+        }
+        // A steady bill charged off its usual: `usual` is only passed for those.
+        if let usual {
+            let amount = CurrencyAmountFormat.string(cents: usual, currencyCode: currencyCode,
+                                                     narrowSymbol: narrowSymbol, numberFormat: numberFormat)
+            line += " · " + String(format: String(localized: "Usually %@"), amount)
         }
         return line
     }

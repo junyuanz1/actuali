@@ -1914,6 +1914,86 @@ final class BudgetStore: ObservableObject {
         return try await database.mostRecentCategoryId(forPayeeId: payeeId)
     }
 
+    /// What the transaction editor shows about a saved transaction beyond its
+    /// own fields: the payee's past charges and what the rules would set now.
+    struct TransactionInspection: Equatable {
+        var history: [BudgetDatabase.PayeeHistoryRow] = []
+        /// Nil until the payee has a second charge to compare against.
+        var stats: PayeeStats?
+        var ruleChanges: [RuleChange] = []
+
+        struct RuleChange: Identifiable, Equatable {
+            enum Field { case payee, category }
+
+            let field: Field
+            let from: String?
+            let to: String?
+            /// The category the rules pick. Nil for a payee change, which the
+            /// form applies by name like any other payee entry.
+            var categoryId: String?
+            var id: Field {
+                field
+            }
+        }
+    }
+
+    /// Transfers and split children have no payee history or rules pass of
+    /// their own, so they inspect as empty.
+    func inspectTransaction(_ transaction: Transaction) async -> TransactionInspection {
+        var inspection = TransactionInspection()
+        guard transaction.transferId == nil, transaction.parentId == nil, let database else { return inspection }
+
+        if let payeeId = transaction.payeeId {
+            inspection.history = await (try? database.fetchPayeeHistory(payeeId: payeeId)) ?? []
+            if inspection.history.count > 1 {
+                inspection.stats = PayeeStats(
+                    amounts: inspection.history.map(\.amount),
+                    dates: inspection.history.map(\.date)
+                )
+            }
+        }
+
+        guard !transaction.isParent, let prepared = try? await syncClient?.prepareRules() else { return inspection }
+        let result = RulesEngine.apply(transaction, rules: prepared.rules, context: prepared.context)
+        guard !result.isDeleted else { return inspection }
+        // ponytail: only payee and category are compared. Rules run once, when
+        // a transaction arrives, so re-running them is only a hint: an
+        // append-notes action would differ on every pass. Widen the list if a
+        // field turns out to be worth reviewing.
+        let payeeName = result.pendingPayeeName
+            ?? payees.first { $0.id == result.transaction.payeeId }?.name
+        if payeeName != transaction.payeeName,
+           result.pendingPayeeName != nil || result.changedFields.contains("payee") {
+            inspection.ruleChanges.append(.init(field: .payee, from: transaction.payeeName, to: payeeName))
+        }
+        if result.changedFields.contains("category"), !offBudgetAccountIds.contains(transaction.accountId) {
+            let categories = categoryGroups.flatMap(\.categories)
+            inspection.ruleChanges.append(.init(
+                field: .category,
+                from: categories.first { $0.id == transaction.categoryId }?.name,
+                to: categories.first { $0.id == result.transaction.categoryId }?.name,
+                categoryId: result.transaction.categoryId
+            ))
+        }
+        return inspection
+    }
+
+    /// The usual amount of each transaction that is a steady bill charged off
+    /// its usual, keyed by transaction id, for the new-transaction notification.
+    func usualAmountsForPriceChanges(in transactions: [Transaction]) async -> [String: Int] {
+        guard let database else { return [:] }
+        var usual: [String: Int] = [:]
+        for transaction in transactions where transaction.transferId == nil && transaction.parentId == nil {
+            guard let payeeId = transaction.payeeId,
+                  let history = try? await database.fetchPayeeHistory(payeeId: payeeId) else { continue }
+            let stats = PayeeStats(amounts: history.map(\.amount), dates: history.map(\.date))
+            if stats.priceChange(of: transaction.amount) != nil {
+                usual[transaction.id] = stats.usual
+            }
+        }
+        return usual
+    }
+
     /// `id` if that category still exists, else nil — so a category deleted
     /// since a shortcut was configured is dropped instead of written as a
     /// dangling id.
@@ -8183,7 +8263,8 @@ final class BudgetStore: ObservableObject {
             narrowSymbol: useNarrowCurrencySymbol,
             numberFormat: numberFormat,
             accountNames: accountNames,
-            offBudgetAccountIds: offBudgetAccountIds
+            offBudgetAccountIds: offBudgetAccountIds,
+            usualAmounts: usualAmountsForPriceChanges(in: fresh)
         )
     }
 

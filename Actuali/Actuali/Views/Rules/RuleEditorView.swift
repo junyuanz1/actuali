@@ -24,9 +24,11 @@ struct RuleEditorView: View {
     @State private var failureMessage: String?
     @State private var isSaving = false
 
-    init(rule: Rule) {
+    /// `isNew` marks a prefilled draft that isn't saved yet; an empty rule is
+    /// always new.
+    init(rule: Rule, isNew: Bool = false) {
         ruleId = rule.id
-        isNew = rule.conditions.isEmpty && rule.actions.isEmpty
+        self.isNew = isNew || (rule.conditions.isEmpty && rule.actions.isEmpty)
         _stage = State(initialValue: rule.stage)
         _conditionsOp = State(initialValue: rule.conditionsOp)
         _conditions = State(initialValue: rule.conditions.map { Row(value: $0) })
