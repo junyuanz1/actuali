@@ -1915,22 +1915,27 @@ final class BudgetStore: ObservableObject {
     }
 
     /// What the transaction editor shows about a saved transaction beyond its
-    /// own fields: the payee's past charges and what the rules would set now.
+    /// own fields: the payee's past charges and values for its empty fields.
     struct TransactionInspection: Equatable {
         var history: [BudgetDatabase.PayeeHistoryRow] = []
         /// Nil until the payee has a second charge to compare against.
         var stats: PayeeStats?
-        /// What the rules would fill in where the transaction has nothing.
-        var ruleChanges: [RuleChange] = []
+        /// A payee or category for a transaction that has none.
+        var suggestions: [Suggestion] = []
 
-        struct RuleChange: Identifiable, Equatable {
+        struct Suggestion: Identifiable, Equatable {
             enum Field { case payee, category }
+
+            /// Where the value comes from: the rule that sets it, or the
+            /// category the payee's last transaction used.
+            enum Source: Equatable { case rule(Rule), payeeHistory }
 
             let field: Field
             let to: String?
-            /// The category the rules pick. Nil for a payee change, which the
-            /// form applies by name like any other payee entry.
+            /// The suggested category. Nil for a payee, which the form applies
+            /// by name like any other payee entry.
             var categoryId: String?
+            let source: Source
             var id: Field {
                 field
             }
@@ -1956,26 +1961,43 @@ final class BudgetStore: ObservableObject {
         guard !transaction.isParent, let prepared = try? await syncClient?.prepareRules() else { return inspection }
         let result = RulesEngine.apply(transaction, rules: prepared.rules, context: prepared.context)
         guard !result.isDeleted else { return inspection }
-        // ponytail: only payee and category are compared. Rules run once, when
-        // a transaction arrives, so re-running them is only a hint: an
-        // append-notes action would differ on every pass. Widen the list if a
-        // field turns out to be worth reviewing.
+        // The last matching rule that acts on `field` is the one whose value stood.
+        func rule(setting fields: Set<String>) -> Rule? {
+            result.matchedRuleIds.reversed().lazy
+                .compactMap { id in prepared.rules.first { $0.id == id } }
+                .first { $0.actions.contains { fields.contains($0.field ?? "") } }
+        }
+        // ponytail: only payee and category are suggested, and only where the
+        // transaction has none. Rules don't run on an edit, so a filled field
+        // that disagrees with them was most likely set by hand, and offering
+        // the rule's pick there would nag on every open.
         let payeeName = result.pendingPayeeName
             ?? payees.first { $0.id == result.transaction.payeeId }?.name
-        // Only empty fields are offered a value. Rules don't run on an edit, so
-        // a filled one that disagrees with them was most likely set by hand,
-        // and suggesting the rule's pick there would nag on every open.
         if transaction.payeeId == nil, payeeName != transaction.payeeName,
-           result.pendingPayeeName != nil || result.changedFields.contains("payee") {
-            inspection.ruleChanges.append(.init(field: .payee, to: payeeName))
+           result.pendingPayeeName != nil || result.changedFields.contains("payee"),
+           let rule = rule(setting: ["payee", "payee_name"]) {
+            inspection.suggestions.append(.init(field: .payee, to: payeeName, source: .rule(rule)))
         }
-        if transaction.categoryId == nil, result.changedFields.contains("category"),
-           !offBudgetAccountIds.contains(transaction.accountId) {
-            let categories = categoryGroups.flatMap(\.categories)
-            inspection.ruleChanges.append(.init(
+
+        guard transaction.categoryId == nil, !offBudgetAccountIds.contains(transaction.accountId) else {
+            return inspection
+        }
+        let categories = categoryGroups.flatMap(\.categories)
+        if result.changedFields.contains("category"), let rule = rule(setting: ["category"]) {
+            inspection.suggestions.append(.init(
                 field: .category,
                 to: categories.first { $0.id == result.transaction.categoryId }?.name,
-                categoryId: result.transaction.categoryId
+                categoryId: result.transaction.categoryId,
+                source: .rule(rule)
+            ))
+        } else if let payeeId = transaction.payeeId,
+                  let categoryId = try? await payeeHistoryCategoryId(forPayeeId: payeeId) {
+            // No rule has a say: fall back to what the add form would pick.
+            inspection.suggestions.append(.init(
+                field: .category,
+                to: categories.first { $0.id == categoryId }?.name,
+                categoryId: categoryId,
+                source: .payeeHistory
             ))
         }
         return inspection

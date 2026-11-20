@@ -28,6 +28,9 @@ struct RuleRunResult {
     var pendingPayeeName: String?
     /// A `delete-transaction` action fired.
     var isDeleted: Bool = false
+    /// Rules whose conditions matched, in the order they ran, so a caller can
+    /// say which rule a change came from.
+    var matchedRuleIds: [String] = []
 }
 
 /// Evaluates Actual Budget rules against a Transaction.
@@ -45,6 +48,7 @@ enum RulesEngine {
     ) -> RuleRunResult {
         var bag = TransactionBag(transaction, context: context)
         let original = bag.snapshot()
+        var matchedRuleIds: [String] = []
 
         for rule in RuleRanker.rank(rules) {
             // Upstream parity (loot-core runRules): when a transaction already
@@ -55,6 +59,7 @@ enum RulesEngine {
                 continue
             }
             guard evalConditions(rule, bag: bag) else { continue }
+            matchedRuleIds.append(rule.id)
             for action in rule.actions {
                 apply(action, bag: &bag, ruleId: rule.id)
             }
@@ -69,7 +74,8 @@ enum RulesEngine {
             transaction: bag.toTransaction(base: transaction),
             changedFields: changed,
             pendingPayeeName: bag.pendingPayeeName,
-            isDeleted: bag.isDeleted
+            isDeleted: bag.isDeleted,
+            matchedRuleIds: matchedRuleIds
         )
     }
 

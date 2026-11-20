@@ -1,8 +1,8 @@
 import Charts
 import SwiftUI
 
-/// What the rules would set on the transaction being edited, one tap each to
-/// take it, and an offer to turn a category picked by hand into a rule.
+/// A payee or category for a transaction that has none, one tap to take it,
+/// and an offer to turn a category picked by hand into a rule.
 struct TransactionRuleSections: View {
     @EnvironmentObject private var budgetStore: BudgetStore
 
@@ -13,17 +13,20 @@ struct TransactionRuleSections: View {
     let payee: Payee?
     let payeeName: String
     let categoryId: String?
-    let onApply: (BudgetStore.TransactionInspection.RuleChange) -> Void
+    let onApply: (BudgetStore.TransactionInspection.Suggestion) -> Void
 
     @State private var ruleDraft: Rule?
+    @State private var viewedRule: Rule?
 
-    private var pendingChanges: [BudgetStore.TransactionInspection.RuleChange] {
-        // A rule that clears a field has nothing to offer.
-        inspection.ruleChanges.filter { change in
-            guard change.to != nil else { return false }
-            return switch change.field {
-            case .payee: change.to != payeeName
-            case .category: change.categoryId != categoryId
+    private var pendingSuggestions: [BudgetStore.TransactionInspection.Suggestion] {
+        // Suggestions fill an empty field: once the form holds a value, taken
+        // from here or picked by hand, there is nothing left to offer. Nor is
+        // there without a name to show.
+        inspection.suggestions.filter { suggestion in
+            guard suggestion.to != nil else { return false }
+            return switch suggestion.field {
+            case .payee: payeeName.isEmpty
+            case .category: categoryId == nil
             }
         }
     }
@@ -32,30 +35,47 @@ struct TransactionRuleSections: View {
     /// wouldn't have made themselves.
     private var pickedCategory: Category? {
         guard budgetStore.rulesSupported, let categoryId, categoryId != transaction.categoryId,
-              !inspection.ruleChanges.contains(where: { $0.categoryId == categoryId }) else { return nil }
+              !inspection.suggestions.contains(where: { $0.categoryId == categoryId && $0.source != .payeeHistory })
+        else { return nil }
         return budgetStore.categoryGroups.flatMap(\.categories).first { $0.id == categoryId }
     }
 
     var body: some View {
-        if !pendingChanges.isEmpty {
+        ForEach(pendingSuggestions) { suggestion in
             Section {
-                ForEach(pendingChanges) { change in
-                    Button {
-                        onApply(change)
-                    } label: {
-                        let name = change.to ?? ""
-                        switch change.field {
-                        case .payee:
-                            Label("Set payee to \(name)", systemImage: "wand.and.stars")
-                        case .category:
-                            Label("Set category to \(name)", systemImage: "wand.and.stars")
-                        }
+                Button {
+                    onApply(suggestion)
+                } label: {
+                    let name = suggestion.to ?? ""
+                    switch suggestion.field {
+                    case .payee:
+                        Label("Set payee to \(name)", systemImage: "wand.and.stars")
+                    case .category:
+                        Label("Set category to \(name)", systemImage: "wand.and.stars")
                     }
-                    .accessibilityIdentifier("transactionInsight.applyRule.\(change.field)")
+                }
+                .accessibilityIdentifier("transactionInsight.apply.\(suggestion.field)")
+
+                if case .rule(let rule) = suggestion.source {
+                    Button {
+                        viewedRule = rule
+                    } label: {
+                        Label("View Rule", systemImage: "list.bullet.rectangle")
+                    }
+                    .accessibilityIdentifier("transactionInsight.viewRule.\(suggestion.field)")
                 }
             } footer: {
-                Text("Suggested by your rules.")
+                switch suggestion.source {
+                case .rule:
+                    Text("Suggested by your rules.")
+                case .payeeHistory:
+                    Text("Suggested from past \(payeeName) transactions.")
+                }
             }
+        }
+        .sheet(item: $viewedRule) { rule in
+            NavigationStack { RuleEditorView(rule: rule) }
+                .environmentObject(budgetStore)
         }
 
         if let payee, let category = pickedCategory {

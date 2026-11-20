@@ -51,8 +51,34 @@ struct BudgetStoreInspectTransactionTests {
         #expect(stats.usual == -1549)
         #expect(stats.steady)
         #expect(stats.priceChange(of: -1999) != nil)
-        #expect(inspection.ruleChanges.map(\.field) == [.category])
-        #expect(inspection.ruleChanges.first?.categoryId == "cat-dining")
+        #expect(inspection.suggestions.map(\.field) == [.category])
+        #expect(inspection.suggestions.first?.categoryId == "cat-dining")
+        // The suggestion names the rule it came from.
+        guard case .rule(let rule) = inspection.suggestions.first?.source else {
+            Issue.record("expected a rule-sourced suggestion")
+            return
+        }
+        #expect(rule.id == "cafe-category")
+    }
+
+    @Test func withNoRuleTheCategoryComesFromThePayeesLastTransaction() async throws {
+        let (store, path) = try await makeStore()
+        defer { cleanup(path) }
+        let key = "suggestCategoryFromPayeeHistory"
+        let original = UserDefaults.standard.object(forKey: key)
+        defer { restoreUserDefault(key, to: original) }
+        store.suggestCategoryFromPayeeHistory = true
+        try await store.databaseForLogger?.dbQueueForTesting.write { db in
+            try db.execute(sql: """
+            DELETE FROM rules;
+            UPDATE transactions SET category = 'cat-coffee' WHERE id = 'tx-4';
+            """)
+        }
+
+        let inspection = await store.inspectTransaction(transaction())
+
+        #expect(inspection.suggestions.map(\.categoryId) == ["cat-coffee"])
+        #expect(inspection.suggestions.first?.source == .payeeHistory)
     }
 
     @Test func aTransactionTheRulesAgreeWithHasNoChanges() async throws {
@@ -61,7 +87,7 @@ struct BudgetStoreInspectTransactionTests {
 
         let inspection = await store.inspectTransaction(transaction(categoryId: "cat-dining"))
 
-        #expect(inspection.ruleChanges.isEmpty)
+        #expect(inspection.suggestions.isEmpty)
     }
 
     @Test func aCategoryPickedByHandIsNotOverruled() async throws {
@@ -71,7 +97,7 @@ struct BudgetStoreInspectTransactionTests {
         // The rule says cat-dining; this one was deliberately filed elsewhere.
         let inspection = await store.inspectTransaction(transaction(categoryId: "cat-gifts"))
 
-        #expect(inspection.ruleChanges.isEmpty)
+        #expect(inspection.suggestions.isEmpty)
     }
 
     @Test func aTransferInspectsAsEmpty() async throws {

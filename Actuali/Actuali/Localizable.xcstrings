@@ -4293,6 +4293,53 @@
         }
       }
     },
+    "Suggested from past %@ transactions." : {
+      "comment" : "Footer under a suggested category taken from a payee's most recent transaction; placeholder is the payee name",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorschlag aus früheren Transaktionen von %@."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggested from past %@ transactions."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sugerido a partir de transacciones anteriores de %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggéré d’après les transactions précédentes de %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suggerito dalle transazioni precedenti di %@."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voorgesteld op basis van eerdere transacties van %@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sugerido com base em transações anteriores de %@."
+          }
+        }
+      }
+    },
     "This looks like a recurring bill without a schedule." : {
       "comment" : "Footer under the Find Schedules link in the transaction editor",
       "localizations" : {
@@ -7862,6 +7909,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Valor no vencimento"
+          }
+        }
+      }
+    },
+    "View Rule" : {
+      "comment" : "Button that opens the rule a suggestion in the transaction editor came from",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regel anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View Rule"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver regla"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voir la règle"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra regola"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regel bekijken"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ver regra"
           }
         }
       }
