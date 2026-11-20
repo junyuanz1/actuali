@@ -1,7 +1,7 @@
 import Charts
 import SwiftUI
 
-/// What the rules would set on the transaction being edited, with one tap to
+/// What the rules would set on the transaction being edited, one tap each to
 /// take it, and an offer to turn a category picked by hand into a rule.
 struct TransactionRuleSections: View {
     @EnvironmentObject private var budgetStore: BudgetStore
@@ -18,8 +18,10 @@ struct TransactionRuleSections: View {
     @State private var ruleDraft: Rule?
 
     private var pendingChanges: [BudgetStore.TransactionInspection.RuleChange] {
+        // A rule that clears a field has nothing to offer.
         inspection.ruleChanges.filter { change in
-            switch change.field {
+            guard change.to != nil else { return false }
+            return switch change.field {
             case .payee: change.to != payeeName
             case .category: change.categoryId != categoryId
             }
@@ -36,22 +38,23 @@ struct TransactionRuleSections: View {
 
     var body: some View {
         if !pendingChanges.isEmpty {
-            Section("Your rules would change") {
+            Section {
                 ForEach(pendingChanges) { change in
-                    switch change.field {
-                    case .payee:
-                        let none = String(localized: "No payee")
-                        LabeledContent("Payee", value: "\(change.from ?? none) → \(change.to ?? none)")
-                    case .category:
-                        // The form's own word for an empty category.
-                        let none = String(localized: "None")
-                        LabeledContent("Category", value: "\(change.from ?? none) → \(change.to ?? none)")
+                    Button {
+                        onApply(change)
+                    } label: {
+                        let name = change.to ?? ""
+                        switch change.field {
+                        case .payee:
+                            Label("Set payee to \(name)", systemImage: "wand.and.stars")
+                        case .category:
+                            Label("Set category to \(name)", systemImage: "wand.and.stars")
+                        }
                     }
+                    .accessibilityIdentifier("transactionInsight.applyRule.\(change.field)")
                 }
-                Button("Apply") {
-                    pendingChanges.forEach(onApply)
-                }
-                .accessibilityIdentifier("transactionInsight.applyRules")
+            } footer: {
+                Text("Suggested by your rules.")
             }
         }
 
