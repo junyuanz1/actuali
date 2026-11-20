@@ -64,6 +64,16 @@ struct BudgetStoreInspectTransactionTests {
         #expect(inspection.ruleChanges.isEmpty)
     }
 
+    @Test func aCategoryPickedByHandIsNotOverruled() async throws {
+        let (store, path) = try await makeStore()
+        defer { cleanup(path) }
+
+        // The rule says cat-dining; this one was deliberately filed elsewhere.
+        let inspection = await store.inspectTransaction(transaction(categoryId: "cat-gifts"))
+
+        #expect(inspection.ruleChanges.isEmpty)
+    }
+
     @Test func aTransferInspectsAsEmpty() async throws {
         let (store, path) = try await makeStore()
         defer { cleanup(path) }

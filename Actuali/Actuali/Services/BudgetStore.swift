@@ -1920,13 +1920,13 @@ final class BudgetStore: ObservableObject {
         var history: [BudgetDatabase.PayeeHistoryRow] = []
         /// Nil until the payee has a second charge to compare against.
         var stats: PayeeStats?
+        /// What the rules would fill in where the transaction has nothing.
         var ruleChanges: [RuleChange] = []
 
         struct RuleChange: Identifiable, Equatable {
             enum Field { case payee, category }
 
             let field: Field
-            let from: String?
             let to: String?
             /// The category the rules pick. Nil for a payee change, which the
             /// form applies by name like any other payee entry.
@@ -1962,15 +1962,18 @@ final class BudgetStore: ObservableObject {
         // field turns out to be worth reviewing.
         let payeeName = result.pendingPayeeName
             ?? payees.first { $0.id == result.transaction.payeeId }?.name
-        if payeeName != transaction.payeeName,
+        // Only empty fields are offered a value. Rules don't run on an edit, so
+        // a filled one that disagrees with them was most likely set by hand,
+        // and suggesting the rule's pick there would nag on every open.
+        if transaction.payeeId == nil, payeeName != transaction.payeeName,
            result.pendingPayeeName != nil || result.changedFields.contains("payee") {
-            inspection.ruleChanges.append(.init(field: .payee, from: transaction.payeeName, to: payeeName))
+            inspection.ruleChanges.append(.init(field: .payee, to: payeeName))
         }
-        if result.changedFields.contains("category"), !offBudgetAccountIds.contains(transaction.accountId) {
+        if transaction.categoryId == nil, result.changedFields.contains("category"),
+           !offBudgetAccountIds.contains(transaction.accountId) {
             let categories = categoryGroups.flatMap(\.categories)
             inspection.ruleChanges.append(.init(
                 field: .category,
-                from: categories.first { $0.id == transaction.categoryId }?.name,
                 to: categories.first { $0.id == result.transaction.categoryId }?.name,
                 categoryId: result.transaction.categoryId
             ))
