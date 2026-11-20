@@ -43,7 +43,8 @@ struct TransactionRuleSections: View {
                         let none = String(localized: "No payee")
                         LabeledContent("Payee", value: "\(change.from ?? none) → \(change.to ?? none)")
                     case .category:
-                        let none = String(localized: "Uncategorized")
+                        // The form's own word for an empty category.
+                        let none = String(localized: "None")
                         LabeledContent("Category", value: "\(change.from ?? none) → \(change.to ?? none)")
                     }
                 }
@@ -75,17 +76,54 @@ struct TransactionRuleSections: View {
     }
 }
 
-/// Read-only context under the transaction editor: how this charge compares
-/// with the payee's past ones, its schedule, and the bank's own text.
-struct TransactionHistorySections: View {
+/// The editor's one-line way into a payee's history: the usual amount, or a
+/// warning when this charge is off it. Absent when there is nothing behind it.
+struct PayeeHistoryLink: View {
     @EnvironmentObject private var budgetStore: BudgetStore
     @Environment(\.locale) private var locale
 
     let transaction: Transaction
     let inspection: BudgetStore.TransactionInspection
 
-    /// Rows listed under the summary; the chart covers a longer run.
-    private static let recentCount = 5
+    private var hasBankDescription: Bool {
+        PayeeHistoryView.bankDescription(of: transaction) != nil
+    }
+
+    var body: some View {
+        if inspection.stats != nil || transaction.schedule != nil || hasBankDescription {
+            NavigationLink {
+                PayeeHistoryView(transaction: transaction, inspection: inspection)
+            } label: {
+                // An HStack like the form's other rows: LabeledContent grew
+                // this row to several times its height.
+                HStack {
+                    Label("Payee History", systemImage: "clock.arrow.circlepath")
+                    Spacer()
+                    if let stats = inspection.stats {
+                        if let change = stats.priceChange(of: transaction.amount) {
+                            PayeeHistoryView.priceChangeLabel(change, locale: locale)
+                        } else {
+                            Text("Usually \(budgetStore.displayBalance(stats.usual, locale: locale))")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("transactionInsight.history")
+        }
+    }
+}
+
+/// How a charge compares with the payee's past ones, with its schedule and
+/// the bank's own text. Read-only.
+struct PayeeHistoryView: View {
+    @EnvironmentObject private var budgetStore: BudgetStore
+    @Environment(\.locale) private var locale
+
+    let transaction: Transaction
+    let inspection: BudgetStore.TransactionInspection
+
+    /// Charges the trend covers, fewer when the payee has fewer.
     private static let chartCount = 12
 
     /// "About monthly" for a typical gap between charges, in days.
@@ -106,6 +144,23 @@ struct TransactionHistorySections: View {
         }
     }
 
+    /// The bank's text for an imported transaction, when it says something
+    /// the payee name doesn't.
+    nonisolated static func bankDescription(of transaction: Transaction) -> String? {
+        guard let imported = transaction.importedPayee, !imported.isEmpty,
+              imported != transaction.payeeName else { return nil }
+        return imported
+    }
+
+    /// Icon and text, so the warning doesn't rest on its color.
+    static func priceChangeLabel(_ change: Double, locale: Locale) -> some View {
+        let percent = change.formatted(
+            .percent.precision(.fractionLength(0)).sign(strategy: .always()).locale(locale)
+        )
+        return Label("\(percent) vs usual", systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.orange)
+    }
+
     private var linkedSchedule: ScheduleSummary? {
         budgetStore.schedules.first { $0.id == transaction.schedule }
     }
@@ -117,72 +172,77 @@ struct TransactionHistorySections: View {
     }
 
     var body: some View {
-        if let stats = inspection.stats {
-            Section("Payee History") {
-                if let change = stats.priceChange(of: transaction.amount) {
-                    let percent = change.formatted(
-                        .percent.precision(.fractionLength(0)).sign(strategy: .always()).locale(locale)
-                    )
-                    Label("\(percent) vs usual", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                }
-                LabeledContent("Usual amount", value: budgetStore.displayBalance(stats.usual, locale: locale))
-                if let interval = stats.interval {
-                    LabeledContent("How often", value: Self.frequency(days: interval, locale: locale))
-                }
-                if !budgetStore.hideBalances {
-                    chart
-                }
-                ForEach(inspection.history.prefix(Self.recentCount)) { row in
-                    LabeledContent {
-                        Text(budgetStore.displayBalance(row.amount, locale: locale))
-                            .monospacedDigit()
-                    } label: {
-                        Text(Transaction.formattedDate(from: row.date))
-                        Text([row.accountName, row.categoryName].compactMap(\.self).joined(separator: " · "))
+        List {
+            if let stats = inspection.stats {
+                Section {
+                    if let change = stats.priceChange(of: transaction.amount) {
+                        Self.priceChangeLabel(change, locale: locale)
                     }
-                    .fontWeight(row.id == transaction.id ? .semibold : .regular)
-                    .accessibilityIdentifier("transactionInsight.history.\(row.id)")
+                    LabeledContent("Usual amount", value: budgetStore.displayBalance(stats.usual, locale: locale))
+                    if let interval = stats.interval {
+                        LabeledContent("How often", value: Self.frequency(days: interval, locale: locale))
+                    }
+                    if !budgetStore.hideBalances {
+                        chart
+                    }
                 }
             }
-        }
 
-        if let schedule = linkedSchedule {
-            Section("Schedule") {
-                NavigationLink {
-                    ScheduleEditView(editing: schedule, budgetStore: budgetStore)
-                } label: {
-                    LabeledContent {
-                        if let next = schedule.nextDate {
-                            Text(Transaction.formattedDate(from: next.yyyymmdd))
+            if let schedule = linkedSchedule {
+                Section("Schedule") {
+                    NavigationLink {
+                        ScheduleEditView(editing: schedule, budgetStore: budgetStore)
+                    } label: {
+                        LabeledContent {
+                            if let next = schedule.nextDate {
+                                Text(Transaction.formattedDate(from: next.yyyymmdd))
+                            }
+                        } label: {
+                            Label(schedule.name ?? transaction.payeeName ?? "", systemImage: "calendar.badge.clock")
                         }
+                    }
+                    .accessibilityIdentifier("transactionInsight.schedule")
+                }
+            } else if suggestsSchedule {
+                // ponytail: hands over to Find Schedules, which proposes every
+                // repeating payee, rather than prefilling a schedule for this one.
+                // Give ScheduleEditView a prefill if that proves too indirect.
+                Section {
+                    NavigationLink {
+                        DiscoverSchedulesView()
                     } label: {
-                        Label(schedule.name ?? transaction.payeeName ?? "", systemImage: "calendar.badge.clock")
+                        Label("Find Schedules", systemImage: "sparkle.magnifyingglass")
+                    }
+                    .accessibilityIdentifier("transactionInsight.findSchedules")
+                } footer: {
+                    Text("This looks like a recurring bill without a schedule.")
+                }
+            }
+
+            if let imported = Self.bankDescription(of: transaction) {
+                Section {
+                    LabeledContent("Bank description", value: imported)
+                }
+            }
+
+            if !inspection.history.isEmpty {
+                Section("Transactions") {
+                    ForEach(inspection.history) { row in
+                        LabeledContent {
+                            Text(budgetStore.displayBalance(row.amount, locale: locale))
+                                .monospacedDigit()
+                        } label: {
+                            Text(Transaction.formattedDate(from: row.date))
+                            Text([row.accountName, row.categoryName].compactMap(\.self).joined(separator: " · "))
+                        }
+                        .fontWeight(row.id == transaction.id ? .semibold : .regular)
+                        .accessibilityIdentifier("transactionInsight.history.\(row.id)")
                     }
                 }
-                .accessibilityIdentifier("transactionInsight.schedule")
-            }
-        } else if suggestsSchedule {
-            // ponytail: hands over to Find Schedules, which proposes every
-            // repeating payee, rather than prefilling a schedule for this one.
-            // Give ScheduleEditView a prefill if that proves too indirect.
-            Section {
-                NavigationLink {
-                    DiscoverSchedulesView()
-                } label: {
-                    Label("Find Schedules", systemImage: "sparkle.magnifyingglass")
-                }
-                .accessibilityIdentifier("transactionInsight.findSchedules")
-            } footer: {
-                Text("This looks like a recurring bill without a schedule.")
             }
         }
-
-        if let imported = transaction.importedPayee, !imported.isEmpty, imported != transaction.payeeName {
-            Section {
-                LabeledContent("Bank description", value: imported)
-            }
-        }
+        .navigationTitle(transaction.payeeName ?? String(localized: "Payee History"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     /// The payee's last charges, oldest to newest, as a trend with no axes:
@@ -197,7 +257,7 @@ struct TransactionHistorySections: View {
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartYScale(domain: .automatic(includesZero: false))
-        .frame(height: 44)
+        .frame(height: 80)
         .accessibilityHidden(true)
     }
 }

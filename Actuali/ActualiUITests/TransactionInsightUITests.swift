@@ -1,6 +1,6 @@
 import XCTest
 
-/// The transaction editor shows the payee's past charges under the form.
+/// The transaction editor links to the payee's past charges.
 final class TransactionInsightUITests: XCTestCase {
     @MainActor
     func testEditingATransactionShowsThePayeesHistory() {
@@ -19,11 +19,14 @@ final class TransactionInsightUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the demo budget has a Chipotle transaction")
         row.tap()
 
-        let history = app.descendants(matching: .any).matching(
+        let link = app.buttons["transactionInsight.history"]
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "the demo budget has more than one Chipotle charge")
+        link.tap()
+
+        XCTAssertTrue(app.staticTexts["Usual amount"].waitForExistence(timeout: 5))
+        let charge = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH 'transactionInsight.history.'")
         ).firstMatch
-        scrollUntilHittable(history, in: app, maxSwipes: 10)
-        XCTAssertTrue(history.exists, "the demo budget has more than one Chipotle charge")
-        XCTAssertTrue(app.staticTexts["Usual amount"].exists)
+        XCTAssertTrue(charge.exists)
     }
 }

@@ -674,6 +674,10 @@ struct AddTransactionView: View {
                         )
                         .environmentObject(budgetStore)
                     }
+
+                    if let editing, !isTransfer {
+                        PayeeHistoryLink(transaction: editing, inspection: inspection)
+                    }
                 }
 
                 if showsCategorySection {
@@ -846,12 +850,6 @@ struct AddTransactionView: View {
                     // scroll the shortcut isn't registered until the row is
                     // reached — the same reachability the tap has.
                     .keyboardShortcut(.cancelAction)
-                }
-
-                // Reference, not input: under the buttons so it never pushes
-                // them down the form.
-                if let editing, !isTransfer {
-                    TransactionHistorySections(transaction: editing, inspection: inspection)
                 }
             }
             .readableWidth()
