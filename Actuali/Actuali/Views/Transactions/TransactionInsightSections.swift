@@ -63,6 +63,10 @@ struct TransactionRuleSections: View {
                         Label("View Rule", systemImage: "list.bullet.rectangle")
                     }
                     .accessibilityIdentifier("transactionInsight.viewRule.\(suggestion.field)")
+                    .sheet(item: $viewedRule) { rule in
+                        NavigationStack { RuleEditorView(rule: rule) }
+                            .environmentObject(budgetStore)
+                    }
                 }
             } footer: {
                 switch suggestion.source {
@@ -72,10 +76,6 @@ struct TransactionRuleSections: View {
                     Text("Suggested from past \(payeeName) transactions.")
                 }
             }
-        }
-        .sheet(item: $viewedRule) { rule in
-            NavigationStack { RuleEditorView(rule: rule) }
-                .environmentObject(budgetStore)
         }
 
         if let payee, let category = pickedCategory {
